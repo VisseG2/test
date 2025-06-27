@@ -73,6 +73,27 @@ def sync_all(device_sn):
     flash(f"Запит на повну синхронізацію відправлено на пристрій {device_sn}.", 'info')
     return redirect(url_for('dashboard'))
 
+
+@app.route('/devices', methods=['GET', 'POST'])
+def manage_devices():
+    """Перегляд та редагування інформації про пристрої"""
+    if request.method == 'POST':
+        sn = request.form.get('sn')
+        alias = request.form.get('alias', '').strip()
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute("UPDATE devices SET alias = ? WHERE sn = ?", (alias, sn))
+            conn.commit()
+            conn.close()
+        flash(f'Інформацію про пристрій {sn} оновлено.', 'success')
+        return redirect(url_for('manage_devices'))
+
+    with db_lock:
+        conn = get_db_connection()
+        devices = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC").fetchall()
+        conn.close()
+    return render_template('devices.html', devices=devices)
+
 @app.route('/enroll_fingerprint/<device_sn>/<pin>/<int:finger_id>')
 def enroll_fingerprint(device_sn, pin, finger_id=0):
     """Удаленная регистрация отпечатка пальца"""
