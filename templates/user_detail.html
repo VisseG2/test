@@ -1,0 +1,266 @@
+{% extends 'base.html' %}
+{% block title %}Детали пользователя: {{ user.name|e }}{% endblock %}
+{% block content %}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="fas fa-user-circle"></i> {{ user.name|e }}</h1>
+        <a href="{{ url_for('manage_users') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Назад к списку
+        </a>
+    </div>
+
+    <!-- Информация о пользователе -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0"><i class="fas fa-id-badge"></i> Информация о пользователе</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>PIN (ID):</strong> <span class="badge bg-primary fs-6">{{ user.pin|e }}</span></p>
+                            <p><strong>Имя:</strong> {{ user.name|e }}</p>
+                            <p><strong>Номер карты:</strong> 
+                                {% if user.card_no %}
+                                    <span class="badge bg-info">{{ user.card_no|e }}</span>
+                                {% else %}
+                                    <span class="text-muted">Не указан</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Уровень доступа:</strong>
+                                {% if user.privilege == 14 %}
+                                    <span class="badge bg-danger">Администратор</span>
+                                {% elif user.privilege == 1 %}
+                                    <span class="badge bg-warning">Расширенные права</span>
+                                {% else %}
+                                    <span class="badge bg-success">Обычный пользователь</span>
+                                {% endif %}
+                            </p>
+                            {% if user.message_to_display %}
+                            <div class="alert alert-warning mb-0">
+                                <i class="fas fa-envelope"></i> <strong>Ожидающее сообщение:</strong><br>
+                                {{ user.message_to_display|e }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="card-title mb-0"><i class="fas fa-chart-pie"></i> Статистика биометрии</h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Отпечатки пальцев:</span>
+                        <span class="badge bg-success">{{ biometrics|selectattr('bio_type', 'equalto', 0)|list|length }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>Шаблоны лица:</span>
+                        <span class="badge bg-info">{{ biometrics|selectattr('bio_type', 'equalto', 9)|list|length }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Биометрические данные -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0"><i class="fas fa-fingerprint"></i> Биометрические данные</h5>
+            <div class="btn-group" role="group">
+                <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#enrollFingerprintModal">
+                    <i class="fas fa-fingerprint"></i> Добавить отпечаток
+                </button>
+                <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#uploadFaceModal">
+                    <i class="fas fa-camera"></i> Загрузить фото
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if biometrics %}
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Тип</th>
+                            <th>Описание</th>
+                            <th>Размер данных</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for bio in biometrics %}
+                        <tr>
+                            <td>
+                                {% if bio.bio_type == 9 %}
+                                    <span class="badge bg-info"><i class="fas fa-user"></i> Лицо</span>
+                                {% elif bio.bio_type == 0 %}
+                                    <span class="badge bg-success"><i class="fas fa-fingerprint"></i> Отпечаток</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Тип {{ bio.bio_type }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if bio.bio_type == 9 %}
+                                    Шаблон лица
+                                {% elif bio.bio_type == 0 %}
+                                    {% set finger_names = {
+                                        0: 'Большой (правая)',
+                                        1: 'Указательный (правая)',
+                                        2: 'Средний (правая)',
+                                        3: 'Безымянный (правая)',
+                                        4: 'Мизинец (правая)',
+                                        5: 'Большой (левая)',
+                                        6: 'Указательный (левая)',
+                                        7: 'Средний (левая)',
+                                        8: 'Безымянный (левая)',
+                                        9: 'Мизинец (левая)'
+                                    } %}
+                                    {{ finger_names.get(bio.finger_id, 'Палец ' + bio.finger_id|string) }}
+                                {% else %}
+                                    Неизвестный тип
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark">{{ bio.template_data|length }} символов</span>
+                            </td>
+                            <td>
+                                <a href="{{ url_for('delete_biometric', pin=user.pin, bio_type=bio.bio_type, finger_id=bio.finger_id) }}" 
+                                   class="btn btn-sm btn-outline-danger"
+                                   onclick="return confirm('Удалить биометрические данные?')">
+                                    <i class="fas fa-trash"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center p-4">
+                <i class="fas fa-fingerprint fa-3x text-muted mb-3"></i>
+                <h6 class="text-muted">Биометрические данные не найдены</h6>
+                <p class="text-muted">Используйте кнопки выше для добавления отпечатков пальцев или фото лица.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Отправка сообщений -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0"><i class="fas fa-envelope"></i> Сообщения на терминал</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">Сообщение будет показано пользователю при следующей успешной идентификации на устройстве в режиме удаленной проверки.</p>
+            <form method="post">
+                <div class="row">
+                    <div class="col-md-8">
+                        <input type="text" name="message" class="form-control" placeholder="Введите текст сообщения" required>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="fas fa-paper-plane"></i> Отправить сообщение
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Модальное окно для регистрации отпечатка -->
+    <div class="modal fade" id="enrollFingerprintModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Удаленная регистрация отпечатка пальца</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-4">Выберите устройство и палец для регистрации отпечатка:</p>
+                    
+                    {% for device in devices %}
+                    <div class="mb-4">
+                        <h6 class="border-bottom pb-2">Устройство: <span class="badge bg-dark">{{ device.sn }}</span></h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header py-2 text-center bg-primary text-white">
+                                        <i class="fas fa-hand-paper"></i> Правая рука
+                                    </div>
+                                    <div class="card-body p-2">
+                                        <div class="d-grid gap-2">
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=0) }}" class="btn btn-outline-primary btn-sm">🤏 Большой</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=1) }}" class="btn btn-outline-primary btn-sm">👆 Указательный</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=2) }}" class="btn btn-outline-primary btn-sm">🖕 Средний</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=3) }}" class="btn btn-outline-primary btn-sm">💍 Безымянный</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=4) }}" class="btn btn-outline-primary btn-sm">🤙 Мизинец</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header py-2 text-center bg-secondary text-white">
+                                        <i class="fas fa-hand-paper fa-flip-horizontal"></i> Левая рука
+                                    </div>
+                                    <div class="card-body p-2">
+                                        <div class="d-grid gap-2">
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=5) }}" class="btn btn-outline-secondary btn-sm">🤏 Большой</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=6) }}" class="btn btn-outline-secondary btn-sm">👆 Указательный</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=7) }}" class="btn btn-outline-secondary btn-sm">🖕 Средний</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=8) }}" class="btn btn-outline-secondary btn-sm">💍 Безымянный</a>
+                                            <a href="{{ url_for('enroll_fingerprint', device_sn=device.sn, pin=user.pin, finger_id=9) }}" class="btn btn-outline-secondary btn-sm">🤙 Мизинец</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для загрузки фото -->
+    <div class="modal fade" id="uploadFaceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" enctype="multipart/form-data">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Загрузить фото лица</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Выберите фото лица (JPG, PNG)</label>
+                            <input type="file" name="face_photo" class="form-control" accept="image/*" required>
+                            <div class="form-text">Рекомендуется использовать качественное фото анфас, размером не более 5МБ.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Назначить на устройство</label>
+                            <select name="device_sn" class="form-select" required>
+                                {% for device in devices %}
+                                <option value="{{ device.sn }}">{{ device.sn }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                        <button type="submit" class="btn btn-info">Загрузить фото</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}

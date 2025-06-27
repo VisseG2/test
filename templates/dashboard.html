@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Панель приладів{% endblock %}
+{% block content %}
+    <h1>Панель приладів</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} mt-3">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    <hr>
+    <h3>Зареєстровані пристрої</h3>
+    <table class="table table-striped">
+        <thead><tr><th>Серійний номер</th><th>IP-адреса</th><th>Останній контакт</th><th>Дії</th></tr></thead>
+        <tbody>
+        {% for device in devices %}
+            <tr>
+                <td>{{ device.sn|e }}</td>
+                <td>{{ device.ip_address|e }}</td>
+                <td>{{ device.last_seen|e }}</td>
+                <td>
+                    <a href="{{ url_for('sync_all', device_sn=device.sn) }}" class="btn btn-sm btn-primary">Повна синхронізація</a>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4">Немає зареєстрованих пристроїв.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <hr>
+    <h3>Останні 20 подій</h3>
+    <table class="table table-sm">
+        <thead><tr><th>Час</th><th>Пристрій</th><th>PIN</th><th>Ім'я користувача</th><th>Подія</th></tr></thead>
+        <tbody>
+        {% for log in logs %}
+            <tr>
+                <td>{{ log.event_time|e }}</td>
+                <td>{{ log.device_sn|e }}</td>
+                <td>{{ log.user_pin|e }}</td>
+                <td>{{ log.name|e or 'Невідомий' }}</td>
+                <td>{{ log.event_type|e }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5">Журнал подій порожній.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}
