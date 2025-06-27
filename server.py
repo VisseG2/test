@@ -73,6 +73,27 @@ def sync_all(device_sn):
     flash(f"Запит на повну синхронізацію відправлено на пристрій {device_sn}.", 'info')
     return redirect(url_for('dashboard'))
 
+
+@app.route('/devices', methods=['GET', 'POST'])
+def manage_devices():
+    """Перегляд та редагування інформації про пристрої"""
+    if request.method == 'POST':
+        sn = request.form.get('sn')
+        alias = request.form.get('alias', '').strip()
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute("UPDATE devices SET alias = ? WHERE sn = ?", (alias, sn))
+            conn.commit()
+            conn.close()
+        flash(f'Інформацію про пристрій {sn} оновлено.', 'success')
+        return redirect(url_for('manage_devices'))
+
+    with db_lock:
+        conn = get_db_connection()
+        devices = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC").fetchall()
+        conn.close()
+    return render_template('devices.html', devices=devices)
+
 @app.route('/enroll_fingerprint/<device_sn>/<pin>/<int:finger_id>')
 def enroll_fingerprint(device_sn, pin, finger_id=0):
     """Удаленная регистрация отпечатка пальца"""
@@ -165,21 +186,24 @@ def delete_biometric(pin, bio_type, finger_id):
     try:
         with db_lock:
             conn = get_db_connection()
-            conn.execute("DELETE FROM biometrics WHERE user_pin = ? AND bio_type = ? AND finger_id = ?", 
-                        (pin, bio_type, finger_id))
+            conn.execute(
+                "DELETE FROM biometrics WHERE user_pin = ? AND bio_type = ? AND finger_id = ?",
+                (pin, bio_type, finger_id),
+            )
+            devices = conn.execute("SELECT sn FROM devices").fetchall()
             conn.commit()
             conn.close()
-        
-        # Отправляем команду на устройства для удаления
-        with db_lock:
-            conn = get_db_connection()
-            devices = conn.execute("SELECT sn FROM devices").fetchall()
-            for device in devices:
-                if bio_type == 0:  # Отпечаток
-                    add_pending_command(device['sn'], f"C:104:DATA DELETE template Pin={pin}\tNo={finger_id}")
-                elif bio_type == 9:  # Лицо
-                    add_pending_command(device['sn'], f"C:105:DATA DELETE face Pin={pin}")
-            conn.close()
+
+        for device in devices:
+            if bio_type == 0:  # Отпечаток
+                add_pending_command(
+                    device["sn"],
+                    f"C:104:DATA DELETE template Pin={pin}\tNo={finger_id}",
+                )
+            elif bio_type == 9:  # Лицо
+                add_pending_command(
+                    device["sn"], f"C:105:DATA DELETE face Pin={pin}"
+                )
             
         bio_name = "отпечатка пальца" if bio_type == 0 else "лица"
         flash(f"Биометрические данные ({bio_name}) для PIN {pin} успешно удалены.", 'success')
@@ -254,53 +278,53 @@ def manage_users():
 
 @app.route('/user/<pin>', methods=['GET', 'POST'])
 def user_detail(pin):
+    if request.method == 'POST':
+        pending_cmd = None
+        device_sn = request.form.get('device_sn')
+        if 'face_photo' in request.files and request.files['face_photo'].filename != '':
+            print(f"📸 Начинаем загрузку фото для пользователя PIN {pin}")
+            try:
+                face_file = request.files['face_photo']
+                face_data = face_file.read()
+                print(f"📁 Размер файла: {len(face_data)} байт")
+
+                print("🔄 Кодируем фото в base64...")
+                face_template = base64.b64encode(face_data).decode('utf-8')
+                print(f"✅ Фото закодировано, размер base64: {len(face_template)} символов")
+
+                bio_cmd_body = (
+                    f"Pin={pin}\tNo=0\tIndex=0\tValid=1\tDuress=0\tType=9\tFormat=0\tTmp={face_template}"
+                )
+                pending_cmd = f"C:102:DATA UPDATE biodata {bio_cmd_body}"
+            except Exception as e:
+                print(f"💥 Ошибка при подготовке фото: {e}")
+                flash(f"Ошибка при загрузке фото: {e}", 'danger')
+
+        if 'message' in request.form:
+            with db_lock:
+                conn = get_db_connection()
+                conn.execute("UPDATE users SET message_to_display = ? WHERE pin = ?", (request.form['message'], pin))
+                conn.commit()
+                conn.close()
+            flash(f"Повідомлення для користувача {pin} успішно встановлено.", 'success')
+
+        if pending_cmd and device_sn:
+            add_pending_command(device_sn, pending_cmd)
+            print(f"✅ Команда добавлена в очередь для устройства {device_sn}")
+            flash(
+                f"Команда на загрузку фото лица для PIN {pin} отправлена на устройство {device_sn}.",
+                'success',
+            )
+        return redirect(url_for('user_detail', pin=pin))
+
     with db_lock:
         conn = get_db_connection()
-        if request.method == 'POST':
-            if 'face_photo' in request.files and request.files['face_photo'].filename != '':
-                print(f"📸 Начинаем загрузку фото для пользователя PIN {pin}")
-                try:
-                    device_sn = request.form['device_sn']
-                    face_file = request.files['face_photo']
-                    print(f"📁 Размер файла: {len(face_file.read())} байт")
-                    
-                    # Возвращаем указатель в начало файла
-                    face_file.seek(0)
-                    face_data = face_file.read()
-                    
-                    print(f"🔄 Кодируем фото в base64...")
-                    face_template = base64.b64encode(face_data).decode('utf-8')
-                    print(f"✅ Фото закодировано, размер base64: {len(face_template)} символов")
-                    
-                    bio_cmd_body = f"Pin={pin}\tNo=0\tIndex=0\tValid=1\tType=9\tTmp={face_template}"
-                    print(f"📤 Отправляем команду на устройство {device_sn}")
-                    
-                    with db_lock:
-                        conn = get_db_connection()
-                        conn.execute("INSERT INTO pending_commands (device_sn, command_string) VALUES (?, ?)", 
-                                   (device_sn, f"C:102:DATA UPDATE biodata {bio_cmd_body}"))
-                        conn.commit()
-                        conn.close()
-                    
-                    print(f"✅ Команда добавлена в очередь для устройства {device_sn}")
-                    flash(f"Команда на загрузку фото лица для PIN {pin} отправлена на устройство {device_sn}.", 'success')
-                    
-                except Exception as e:
-                    print(f"💥 Ошибка при загрузке фото: {e}")
-                    flash(f"Ошибка при загрузке фото: {e}", 'danger')
-            
-            if 'message' in request.form:
-                message = request.form['message']
-                conn.execute("UPDATE users SET message_to_display = ? WHERE pin = ?", (message, pin))
-                conn.commit()
-                flash(f"Повідомлення для користувача {pin} успішно встановлено.", 'success')
-            return redirect(url_for('user_detail', pin=pin))
-        
         user = conn.execute("SELECT * FROM users WHERE pin = ?", (pin,)).fetchone()
         biometrics = conn.execute("SELECT * FROM biometrics WHERE user_pin = ?", (pin,)).fetchall()
         devices = conn.execute("SELECT sn FROM devices").fetchall()
         conn.close()
-    if not user: return "Користувач не знайдений", 404
+    if not user:
+        return "Користувач не знайдений", 404
     return render_template('user_detail.html', user=user, biometrics=biometrics, devices=devices)
 
 # --- Маршрути для взаємодії з терміналами ZKTeco ---
@@ -318,7 +342,7 @@ def handle_cdata():
 
     if request.args.get('type') == 'BioData':
         body = request.get_data().decode('utf-8')
-        bio_data = {p.split('=')[0]: p.split('=')[1] for p in body.strip().split('\t')}
+        bio_data = {k: v for k, v in (p.split('=', 1) for p in body.strip().split('\t'))}
         pin, bio_type = bio_data.get('PIN'), int(bio_data.get('TYPE'))
         template, finger_id = bio_data.get('TMP'), int(bio_data.get('NO', 0))
         with db_lock:
@@ -333,7 +357,7 @@ def handle_cdata():
 
     if request.args.get('AuthType') == 'device':
         body = request.get_data().decode('utf-8')
-        auth_data = {p.split('=')[0]: p.split('=')[1] for p in body.strip().split('\t')}
+        auth_data = {k: v for k, v in (p.split('=', 1) for p in body.strip().split('\t'))}
         user_pin = auth_data.get('pin')
         print(f"Запит на віддалену ідентифікацію для PIN: {user_pin}")
         with db_lock:
@@ -355,7 +379,7 @@ def handle_cdata():
             conn = get_db_connection()
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    log_dict = {p.split('=')[0]: p.split('=')[1] for p in line.split('\t')}
+                    log_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t'))}
                     conn.execute("INSERT INTO event_logs (device_sn, user_pin, event_time, event_type, verification_mode, door_id) VALUES (?, ?, ?, ?, ?, ?)",
                                (serial_number, log_dict.get('pin'), log_dict.get('time'), log_dict.get('event'), log_dict.get('verifytype'), log_dict.get('eventaddr')))
                     conn.commit()
@@ -376,7 +400,7 @@ def handle_querydata():
         if table_name == 'user':
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    user_dict = {p.split('=')[0]: p.split('=')[1] for p in line.split('\t')[1:]}
+                    user_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t')[1:])}
                     pin, name, card_no = user_dict.get('pin'), user_dict.get('name', 'N/A'), user_dict.get('cardno', '')
                     if not conn.execute("SELECT 1 FROM users WHERE pin = ?", (pin,)).fetchone():
                         conn.execute("INSERT INTO users (pin, name, card_no) VALUES (?, ?, ?)", (pin, name, card_no))
@@ -388,7 +412,7 @@ def handle_querydata():
         elif table_name == 'templatev10':
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    fp_dict = {p.split('=')[0]: p.split('=')[1] for p in line.split('\t')[1:]}
+                    fp_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t')[1:])}
                     pin, finger_id = fp_dict.get('pin'), int(fp_dict.get('fingerid'))
                     template = fp_dict.get('template')
                     conn.execute("""INSERT INTO biometrics (user_pin, bio_type, finger_id, template_data) VALUES (?, 0, ?, ?)
