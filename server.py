@@ -319,6 +319,39 @@ def user_detail(pin):
 
     with db_lock:
         conn = get_db_connection()
+
+        if request.method == 'POST':
+            if 'face_photo' in request.files and request.files['face_photo'].filename != '':
+                print(f"📸 Начинаем загрузку фото для пользователя PIN {pin}")
+                try:
+                    device_sn = request.form['device_sn']
+                    face_file = request.files['face_photo']
+                    face_data = face_file.read()
+                    print(f"📁 Размер файла: {len(face_data)} байт")
+
+                    print("🔄 Кодируем фото в base64...")
+                    face_template = base64.b64encode(face_data).decode('utf-8')
+                    print(f"✅ Фото закодировано, размер base64: {len(face_template)} символов")
+
+                    bio_cmd_body = f"Pin={pin}\tNo=0\tIndex=0\tValid=1\tType=9\tTmp={face_template}"
+                    add_pending_command(device_sn, f"C:102:DATA UPDATE biodata {bio_cmd_body}")
+                    print(f"✅ Команда добавлена в очередь для устройства {device_sn}")
+                    flash(
+                        f"Команда на загрузку фото лица для PIN {pin} отправлена на устройство {device_sn}.",
+                        'success',
+                    )
+                except Exception as e:
+                    print(f"💥 Ошибка при загрузке фото: {e}")
+                    flash(f"Ошибка при загрузке фото: {e}", 'danger')
+
+            if 'message' in request.form:
+                message = request.form['message']
+                conn.execute("UPDATE users SET message_to_display = ? WHERE pin = ?", (message, pin))
+                conn.commit()
+                flash(f"Повідомлення для користувача {pin} успішно встановлено.", 'success')
+            conn.close()
+            return redirect(url_for('user_detail', pin=pin))
+
         user = conn.execute("SELECT * FROM users WHERE pin = ?", (pin,)).fetchone()
         biometrics = conn.execute("SELECT * FROM biometrics WHERE user_pin = ?", (pin,)).fetchall()
         devices = conn.execute("SELECT sn FROM devices").fetchall()
