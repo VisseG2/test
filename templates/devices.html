@@ -11,6 +11,8 @@
         <th>Останній контакт</th>
         <th>Назва</th>
         <th>Дії</th>
+        <th></th>
+
     </tr>
     </thead>
     <tbody>
@@ -29,9 +31,13 @@
         <td>
             <a href="{{ url_for('sync_all', device_sn=device.sn) }}" class="btn btn-sm btn-outline-secondary">Синхронізувати</a>
         </td>
+        <td>
+            <a href="{{ url_for('device_detail_page', sn=device.sn) }}" class="btn btn-sm btn-outline-info">Деталі</a>
+        </td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-center">Немає зареєстрованих пристроїв.</td></tr>
+    <tr><td colspan="6" class="text-center">Немає зареєстрованих пристроїв.</td></tr>
+
     {% endfor %}
     </tbody>
 </table>

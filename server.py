@@ -30,7 +30,24 @@ def init_database():
     print("Ініціалізація бази даних...")
     with db_lock:
         conn = get_db_connection()
-        conn.execute("""CREATE TABLE IF NOT EXISTS devices (id INTEGER PRIMARY KEY, sn TEXT UNIQUE, ip_address TEXT, last_seen TIMESTAMP, alias TEXT, firmware_version TEXT);""")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS devices (
+                id INTEGER PRIMARY KEY,
+                sn TEXT UNIQUE,
+                ip_address TEXT,
+                last_seen TIMESTAMP,
+                alias TEXT,
+                firmware_version TEXT
+            );"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS device_params (
+                device_sn TEXT,
+                param_name TEXT,
+                param_value TEXT,
+                PRIMARY KEY (device_sn, param_name)
+            );"""
+        )
         conn.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, pin TEXT UNIQUE, name TEXT, card_no TEXT, privilege INTEGER DEFAULT 0, message_to_display TEXT);""")
         conn.execute("""CREATE TABLE IF NOT EXISTS event_logs (id INTEGER PRIMARY KEY, device_sn TEXT, user_pin TEXT, event_time TIMESTAMP, event_type TEXT, verification_mode TEXT, door_id INTEGER);""")
         conn.execute("""CREATE TABLE IF NOT EXISTS pending_commands (id INTEGER PRIMARY KEY, device_sn TEXT, command_string TEXT);""")
@@ -54,6 +71,15 @@ def add_pending_command(device_sn, command_string):
         conn.execute("INSERT INTO pending_commands (device_sn, command_string) VALUES (?, ?)", (device_sn, command_string))
         conn.commit()
         conn.close()
+
+def parse_pairs(text, sep='\t'):
+    """Parse key=value pairs separated by `sep`. Extra '=' characters are kept in values."""
+    result = {}
+    for part in text.strip().split(sep):
+        if '=' in part:
+            key, value = part.split('=', 1)
+            result[key] = value
+    return result
 
 # --- Маршрути для веб-інтерфейсу (Адмін-панель) ---
 
@@ -93,6 +119,24 @@ def manage_devices():
         devices = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC").fetchall()
         conn.close()
     return render_template('devices.html', devices=devices)
+
+
+
+@app.route('/device/<sn>')
+def device_detail_page(sn):
+    """Детальна інформація про пристрій"""
+    with db_lock:
+        conn = get_db_connection()
+        device = conn.execute("SELECT * FROM devices WHERE sn = ?", (sn,)).fetchone()
+        params = conn.execute(
+            "SELECT param_name, param_value FROM device_params WHERE device_sn = ? ORDER BY param_name",
+            (sn,),
+        ).fetchall()
+        conn.close()
+    if not device:
+        return "Пристрій не знайдено", 404
+    return render_template('device_detail.html', device=device, params=params)
+
 
 @app.route('/enroll_fingerprint/<device_sn>/<pin>/<int:finger_id>')
 def enroll_fingerprint(device_sn, pin, finger_id=0):
@@ -320,6 +364,7 @@ def user_detail(pin):
     with db_lock:
         conn = get_db_connection()
 
+
         if request.method == 'POST':
             if 'face_photo' in request.files and request.files['face_photo'].filename != '':
                 print(f"📸 Начинаем загрузку фото для пользователя PIN {pin}")
@@ -375,7 +420,9 @@ def handle_cdata():
 
     if request.args.get('type') == 'BioData':
         body = request.get_data().decode('utf-8')
-        bio_data = {k: v for k, v in (p.split('=', 1) for p in body.strip().split('\t'))}
+
+        bio_data = parse_pairs(body)
+
         pin, bio_type = bio_data.get('PIN'), int(bio_data.get('TYPE'))
         template, finger_id = bio_data.get('TMP'), int(bio_data.get('NO', 0))
         with db_lock:
@@ -390,7 +437,9 @@ def handle_cdata():
 
     if request.args.get('AuthType') == 'device':
         body = request.get_data().decode('utf-8')
-        auth_data = {k: v for k, v in (p.split('=', 1) for p in body.strip().split('\t'))}
+
+        auth_data = parse_pairs(body)
+
         user_pin = auth_data.get('pin')
         print(f"Запит на віддалену ідентифікацію для PIN: {user_pin}")
         with db_lock:
@@ -412,7 +461,9 @@ def handle_cdata():
             conn = get_db_connection()
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    log_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t'))}
+
+                    log_dict = parse_pairs(line)
+
                     conn.execute("INSERT INTO event_logs (device_sn, user_pin, event_time, event_type, verification_mode, door_id) VALUES (?, ?, ?, ?, ?, ?)",
                                (serial_number, log_dict.get('pin'), log_dict.get('time'), log_dict.get('event'), log_dict.get('verifytype'), log_dict.get('eventaddr')))
                     conn.commit()
@@ -433,7 +484,9 @@ def handle_querydata():
         if table_name == 'user':
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    user_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t')[1:])}
+
+                    user_dict = parse_pairs('\t'.join(line.split('\t')[1:]))
+
                     pin, name, card_no = user_dict.get('pin'), user_dict.get('name', 'N/A'), user_dict.get('cardno', '')
                     if not conn.execute("SELECT 1 FROM users WHERE pin = ?", (pin,)).fetchone():
                         conn.execute("INSERT INTO users (pin, name, card_no) VALUES (?, ?, ?)", (pin, name, card_no))
@@ -445,7 +498,9 @@ def handle_querydata():
         elif table_name == 'templatev10':
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    fp_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t')[1:])}
+
+                    fp_dict = parse_pairs('\t'.join(line.split('\t')[1:]))
+
                     pin, finger_id = fp_dict.get('pin'), int(fp_dict.get('fingerid'))
                     template = fp_dict.get('template')
                     conn.execute("""INSERT INTO biometrics (user_pin, bio_type, finger_id, template_data) VALUES (?, 0, ?, ?)
@@ -461,12 +516,25 @@ def handle_querydata():
 @app.route('/iclock/registry', methods=['POST'])
 def handle_registry():
     serial_number, device_ip = request.args.get('SN'), request.remote_addr
+    body = request.get_data(as_text=True)
+    params = parse_pairs(body, sep=',')
     with db_lock:
         conn = get_db_connection()
-        if not conn.execute("SELECT 1 FROM devices WHERE sn = ?", (serial_number,)).fetchone():
-            conn.execute("INSERT INTO devices (sn, ip_address, last_seen) VALUES (?, ?, ?)", (serial_number, device_ip, datetime.datetime.now()))
+        if conn.execute("SELECT 1 FROM devices WHERE sn = ?", (serial_number,)).fetchone():
+            conn.execute(
+                "UPDATE devices SET ip_address = ?, last_seen = ?, firmware_version = ? WHERE sn = ?",
+                (device_ip, datetime.datetime.now(), params.get('FirmVer'), serial_number),
+            )
         else:
-            conn.execute("UPDATE devices SET ip_address = ?, last_seen = ? WHERE sn = ?", (device_ip, datetime.datetime.now(), serial_number))
+            conn.execute(
+                "INSERT INTO devices (sn, ip_address, last_seen, firmware_version) VALUES (?, ?, ?, ?)",
+                (serial_number, device_ip, datetime.datetime.now(), params.get('FirmVer')),
+            )
+        for key, value in params.items():
+            conn.execute(
+                "REPLACE INTO device_params (device_sn, param_name, param_value) VALUES (?, ?, ?)",
+                (serial_number, key, value),
+            )
         conn.commit()
         conn.close()
     return Response("RegistryCode=GeneratedCode123", content_type="text/plain")

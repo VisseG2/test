@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Пристрій {{ device.sn }}{% endblock %}
+{% block content %}
+<h1 class="mb-4">Пристрій {{ device.sn }}</h1>
+<table class="table table-bordered">
+    <tr><th>Серійний номер</th><td>{{ device.sn|e }}</td></tr>
+    <tr><th>IP-адреса</th><td>{{ device.ip_address|e }}</td></tr>
+    <tr><th>Останній контакт</th><td>{{ device.last_seen|e }}</td></tr>
+    <tr><th>Прошивка</th><td>{{ device.firmware_version or '—' }}</td></tr>
+    <tr><th>Назва</th><td>{{ device.alias or '' }}</td></tr>
+</table>
+
+<h2 class="mt-4">Параметри</h2>
+<table class="table table-sm table-striped">
+    <thead><tr><th>Параметр</th><th>Значення</th></tr></thead>
+    <tbody>
+    {% for p in params %}
+    <tr>
+        <td>{{ p['param_name']|e }}</td>
+        <td>{{ p['param_value']|e }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="2" class="text-center">Немає даних</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
