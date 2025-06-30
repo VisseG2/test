@@ -1,0 +1,4 @@
+zkteco_access_control.db
+zkteco_server.log
+__pycache__/
+*.pyc
