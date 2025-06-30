@@ -1,6 +1,5 @@
 # Імпортуємо необхідні бібліотеки
 from flask import Flask, request, Response, render_template, redirect, url_for, flash
-from markupsafe import escape
 import sqlite3
 import datetime
 import base64
