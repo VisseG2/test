@@ -30,6 +30,9 @@
     </table>
     <hr>
     <h3>Останні 20 подій</h3>
+    <div class="my-3">
+        <canvas id="eventsChart" height="120"></canvas>
+    </div>
     <table class="table table-sm">
         <thead><tr><th>Час</th><th>Пристрій</th><th>PIN</th><th>Ім'я користувача</th><th>Подія</th></tr></thead>
         <tbody>
@@ -46,4 +49,24 @@
         {% endfor %}
         </tbody>
     </table>
+    <script>
+        const ctx = document.getElementById('eventsChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: {{ days|tojson }},
+                datasets: [{
+                    label: 'Подій за день',
+                    data: {{ counts|tojson }},
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.25)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                plugins: { legend: { display: false } }
+            }
+        });
+    </script>
 {% endblock %}
