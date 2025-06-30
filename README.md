@@ -19,7 +19,10 @@
    ```
    pip install -r requirements.txt
    ```
-3. Установите переменную окружения `SECRET_KEY` и запустите сервер:
+
+   Это установит Flask, Werkzeug и библиотеку `requests` (версия 2 или выше).
+3. Запустите сервер:
+
    ```
    export SECRET_KEY="your-secret-key"
    python server.py
