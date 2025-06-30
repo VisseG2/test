@@ -19,6 +19,7 @@
    ```
    pip install -r requirements.txt
    ```
+   Это установит Flask, Werkzeug и библиотеку `requests` (версия 2 или выше).
 3. Запустите сервер:
    ```
    python server.py
