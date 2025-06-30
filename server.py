@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 HOST_IP = '0.0.0.0'
 HOST_PORT = 8080
 DATABASE_NAME = 'zkteco_access_control.db'
-SECRET_KEY = 'my-super-secret-key-change-it'
+SECRET_KEY = os.getenv('SECRET_KEY', 'my-super-secret-key-change-it')
 
 # Створюємо веб-додаток
 app = Flask(__name__)
