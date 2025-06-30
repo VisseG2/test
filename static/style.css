@@ -1,6 +1,7 @@
 body {
     padding-top: 5rem;
-    background-color: #f8f9fa;
+    background-color: #1b1b1b;
+    color: #e9ecef;
 }
 
 .alert.flash-success {
@@ -15,4 +16,8 @@ body {
 
 .navbar-brand {
     font-weight: bold;
+}
+
+.table {
+    color: #e9ecef;
 }

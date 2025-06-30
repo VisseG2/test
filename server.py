@@ -86,10 +86,28 @@ def parse_pairs(text, sep='\t'):
 def dashboard():
     with db_lock:
         conn = get_db_connection()
-        devices = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC").fetchall()
-        logs = conn.execute("SELECT l.*, u.name FROM event_logs l LEFT JOIN users u ON l.user_pin = u.pin ORDER BY l.id DESC LIMIT 20").fetchall()
+        devices = conn.execute(
+            "SELECT * FROM devices ORDER BY last_seen DESC"
+        ).fetchall()
+        logs = conn.execute(
+            "SELECT l.*, u.name FROM event_logs l LEFT JOIN users u ON l.user_pin = u.pin ORDER BY l.id DESC LIMIT 20"
+        ).fetchall()
+
+        stats = conn.execute(
+            "SELECT date(event_time) AS day, COUNT(*) AS count FROM event_logs GROUP BY day ORDER BY day DESC LIMIT 7"
+        ).fetchall()
         conn.close()
-    return render_template('dashboard.html', devices=devices, logs=logs)
+
+    days = [row["day"] for row in reversed(stats)]
+    counts = [row["count"] for row in reversed(stats)]
+
+    return render_template(
+        "dashboard.html",
+        devices=devices,
+        logs=logs,
+        days=days,
+        counts=counts,
+    )
 
 @app.route('/sync_all/<device_sn>')
 def sync_all(device_sn):
