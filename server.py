@@ -72,6 +72,15 @@ def add_pending_command(device_sn, command_string):
         conn.commit()
         conn.close()
 
+def parse_pairs(text, sep='\t'):
+    """Parse key=value pairs separated by `sep`. Extra '=' characters are kept in values."""
+    result = {}
+    for part in text.strip().split(sep):
+        if '=' in part:
+            key, value = part.split('=', 1)
+            result[key] = value
+    return result
+
 # --- Маршрути для веб-інтерфейсу (Адмін-панель) ---
 
 @app.route('/')
@@ -375,7 +384,7 @@ def handle_cdata():
 
     if request.args.get('type') == 'BioData':
         body = request.get_data().decode('utf-8')
-        bio_data = {k: v for k, v in (p.split('=', 1) for p in body.strip().split('\t'))}
+        bio_data = parse_pairs(body)
         pin, bio_type = bio_data.get('PIN'), int(bio_data.get('TYPE'))
         template, finger_id = bio_data.get('TMP'), int(bio_data.get('NO', 0))
         with db_lock:
@@ -390,7 +399,7 @@ def handle_cdata():
 
     if request.args.get('AuthType') == 'device':
         body = request.get_data().decode('utf-8')
-        auth_data = {k: v for k, v in (p.split('=', 1) for p in body.strip().split('\t'))}
+        auth_data = parse_pairs(body)
         user_pin = auth_data.get('pin')
         print(f"Запит на віддалену ідентифікацію для PIN: {user_pin}")
         with db_lock:
@@ -412,7 +421,7 @@ def handle_cdata():
             conn = get_db_connection()
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    log_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t'))}
+                    log_dict = parse_pairs(line)
                     conn.execute("INSERT INTO event_logs (device_sn, user_pin, event_time, event_type, verification_mode, door_id) VALUES (?, ?, ?, ?, ?, ?)",
                                (serial_number, log_dict.get('pin'), log_dict.get('time'), log_dict.get('event'), log_dict.get('verifytype'), log_dict.get('eventaddr')))
                     conn.commit()
@@ -433,7 +442,7 @@ def handle_querydata():
         if table_name == 'user':
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    user_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t')[1:])}
+                    user_dict = parse_pairs('\t'.join(line.split('\t')[1:]))
                     pin, name, card_no = user_dict.get('pin'), user_dict.get('name', 'N/A'), user_dict.get('cardno', '')
                     if not conn.execute("SELECT 1 FROM users WHERE pin = ?", (pin,)).fetchone():
                         conn.execute("INSERT INTO users (pin, name, card_no) VALUES (?, ?, ?)", (pin, name, card_no))
@@ -445,7 +454,7 @@ def handle_querydata():
         elif table_name == 'templatev10':
             for line in request.get_data().decode('utf-8').strip().split('\n'):
                 try:
-                    fp_dict = {k: v for k, v in (p.split('=', 1) for p in line.split('\t')[1:])}
+                    fp_dict = parse_pairs('\t'.join(line.split('\t')[1:]))
                     pin, finger_id = fp_dict.get('pin'), int(fp_dict.get('fingerid'))
                     template = fp_dict.get('template')
                     conn.execute("""INSERT INTO biometrics (user_pin, bio_type, finger_id, template_data) VALUES (?, 0, ?, ?)
@@ -462,11 +471,7 @@ def handle_querydata():
 def handle_registry():
     serial_number, device_ip = request.args.get('SN'), request.remote_addr
     body = request.get_data(as_text=True)
-    params = {}
-    for part in body.split(','):
-        if '=' in part:
-            key, value = part.split('=', 1)
-            params[key.strip()] = value.strip()
+    params = parse_pairs(body, sep=',')
     with db_lock:
         conn = get_db_connection()
         if conn.execute("SELECT 1 FROM devices WHERE sn = ?", (serial_number,)).fetchone():
